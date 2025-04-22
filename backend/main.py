@@ -10,6 +10,7 @@ app = FastAPI(
     description="API для классификации входящих обращений",
 )
 
+
 # Настройка CORS
 app.add_middleware(
     CORSMiddleware,

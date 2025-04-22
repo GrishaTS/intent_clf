@@ -25,40 +25,45 @@ class VectorDBService:
         Инициализирует коллекцию в Qdrant, если она еще не существует
         """
         logger.info(f"Checking if collection {self.collection_name} exists")
-        collections = self.client.get_collections().collections
-        collection_names = [collection.name for collection in collections]
+        existing = [c.name for c in self.client.get_collections().collections]
 
-        if self.collection_name not in collection_names:
+        if self.collection_name not in existing:
             logger.info(
                 f"Creating collection {self.collection_name} with vector size {self.vector_size}"
             )
+
+            # Создаём коллекцию только с параметрами векторов
             self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=models.VectorParams(
-                    size=self.vector_size, distance=models.Distance.COSINE
+                    size=self.vector_size,
+                    distance=models.Distance.COSINE
                 ),
-                # Добавляем схему для payload, чтобы обеспечить правильную индексацию
-                schema=models.CollectionSchema(
-                    payload_schema={
-                        "request_id": models.PayloadSchemaType.KEYWORD,
-                        "subject": models.PayloadSchemaType.TEXT,
-                        "description": models.PayloadSchemaType.TEXT,
-                        "class_name": models.PayloadSchemaType.KEYWORD,
-                        "task": models.PayloadSchemaType.KEYWORD,
-                    }
-                ),
+                shard_number=1,
+                replication_factor=1,
+                on_disk_payload=False
             )
 
-            # Создаем индекс для поля request_id
-            self.client.create_field_index(
-                collection_name=self.collection_name,
-                field_name="request_id",
-                field_schema=models.PayloadSchemaType.KEYWORD,
-            )
+            # Индексируем поля payload
+            for field_name, field_type in {
+                "request_id":  models.PayloadSchemaType.KEYWORD,
+                "subject":     models.PayloadSchemaType.TEXT,
+                "description": models.PayloadSchemaType.TEXT,
+                "class_name":  models.PayloadSchemaType.KEYWORD,
+                "task":        models.PayloadSchemaType.KEYWORD,
+            }.items():
+                logger.info(f"Creating payload index for field: {field_name}")
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name=field_name,
+                    field_schema=field_type
+                )
 
             logger.info(f"Collection {self.collection_name} created successfully")
         else:
             logger.info(f"Collection {self.collection_name} already exists")
+
+
 
     def string_to_uuid(self, string_id):
         """
@@ -164,6 +169,22 @@ class VectorDBService:
 
         logger.warning(f"No record found with request_id={request_id}")
         return None
+    
+    def clear_collection(self):
+        """
+        Очищает коллекцию в Qdrant
+        """
+        logger.info(f"Clearing collection {self.collection_name}")
+        try:
+            self.client.delete_collection(collection_name=self.collection_name)
+            logger.info(f"Collection {self.collection_name} deleted")
+            # Пересоздаем коллекцию
+            self.init_collection()
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing collection: {str(e)}")
+            raise
+
 
 
 # Создаем синглтон для переиспользования клиента Qdrant

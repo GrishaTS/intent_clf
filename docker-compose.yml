@@ -3,10 +3,10 @@ version: '3.8'
 services:
   api:
     build:
-      context: .
+      context: backend
       dockerfile: Dockerfile
     ports:
-      - "8190:8000"
+      - "27362:8000"
     volumes:
       - ./app:/app/app
     environment:
@@ -20,12 +20,17 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1  # Количество GPU для использования
+              count: 1
               capabilities: [gpu]
     depends_on:
       - qdrant
     restart: always
-    command: sh -c "python -m wait-for-it && uvicorn main:app --host 0.0.0.0 --port 8000"
+    command: >
+      sh -c "
+        uv run python wait-for-it.py &&
+        uv run uvicorn main:app --host 0.0.0.0 --port 8000
+      "
+
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -37,6 +42,24 @@ services:
     environment:
       - QDRANT_ALLOW_CORS=true
     restart: always
+
+  streamlit:
+    image: python:3.9-slim
+    ports:
+      - "27363:8501"
+    volumes:
+      - ./forntend:/app  # Монтирование всей директории
+    working_dir: /app
+    environment:
+      API_URL: "http://api:8000"
+    command: >
+      sh -c "
+        pip install --no-cache-dir streamlit pandas seaborn matplotlib requests scikit-learn tqdm openpyxl &&
+        ls
+        streamlit run main.py \
+          --server.port=8501 \
+          --server.fileWatcherType none
+      "
 
 volumes:
   qdrant_data:

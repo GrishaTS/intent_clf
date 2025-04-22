@@ -53,3 +53,14 @@ async def upload_data(
         raise HTTPException(
             status_code=500, detail=f"Error uploading vectors: {str(e)}"
         )
+
+@router.post("/clear_index", response_model=UploadResponse)
+async def clear_index(current_user: User = Depends(get_current_active_user)):
+    try:
+        vector_db.clear_collection()
+        return UploadResponse(success=True, message="Индекс успешно очищен", ids=[])
+    except Exception as e:
+        logger.error(f"Error clearing index: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error clearing index: {str(e)}"
+        )

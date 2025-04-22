@@ -6,11 +6,13 @@ import pandas as pd
 import requests
 import seaborn as sns
 import streamlit as st
+import os 
+from evaluate import upload_data, predict, accuracy_score, train_test_split, classification_report, confusion_matrix
 
-# Настройки API
-API_URL = "http://localhost:8190"
-USERNAME = "admin"
-PASSWORD = "secret"
+
+API_URL = os.getenv("API_URL", "http://localhost:8190") 
+USERNAME = os.getenv("USERNAME", "admin") 
+PASSWORD = os.getenv("PASSWORD", "secret")
 
 # Примеры запросов для выбора
 DEFAULT_EXAMPLES = [
@@ -123,7 +125,7 @@ with st.sidebar:
         st.success("Настройки сохранены")
 
 # Создаем вкладки
-tab1, tab2 = st.tabs(["Классификация", "Похожие документы"])
+tab1, tab2, tab3 = st.tabs(["Классификация", "Похожие документы", "Загрузка данных"])
 
 # Вкладка 1: Классификация
 with tab1:
@@ -296,3 +298,59 @@ with tab2:
 
                 else:
                     st.warning("Не найдено похожих документов")
+
+# Вкладка 3: Загрузка данных и оценка
+with tab3:
+    st.title("Загрузка данных и оценка качества")
+    uploaded_file = st.file_uploader(
+        "Выберите CSV-файл с колонками subject, description и class", type="csv"
+    )
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.success("Файл успешно загружен")
+        st.subheader("Предварительный просмотр данных")
+        st.dataframe(df.head())
+
+        if st.button("Загрузить данные и рассчитать метрики"):
+            token = get_token()
+            if token:
+                with st.spinner("Загрузка данных в систему..."):
+                    upload_data(df, token)
+                st.success("Данные загружены")
+
+                # Разбиваем данные на обучающую и тестовую выборки
+                train_df, test_df = train_test_split(
+                    df, test_size=0.2, random_state=42, stratify=df["class"]
+                )
+
+                with st.spinner("Получение предсказаний для тестовой выборки..."):
+                    preds = predict(test_df, token)
+
+                # Вычисляем метрики
+                y_true = test_df["class"].tolist()
+                y_pred = preds
+                acc = accuracy_score(y_true, y_pred)
+                report_text = classification_report(y_true, y_pred)
+                cm = confusion_matrix(y_true, y_pred)
+
+                st.subheader("Результаты оценки")
+                st.write(f"Accuracy: {acc:.4f}")
+                st.text(report_text)
+
+                # Визуализация матрицы ошибок
+                fig, ax = plt.subplots(figsize=(6, 6))
+                sns.heatmap(cm, annot=True, fmt="d", ax=ax)
+                ax.set_xlabel("Предсказано")
+                ax.set_ylabel("Истинный класс")
+                st.pyplot(fig)
+
+                # Возможность скачать последнюю загруженную версию данных
+                csv_data = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "Скачать последнюю загруженную версию",
+                    csv_data,
+                    "uploaded_data.csv",
+                    "text/csv",
+                )
+    else:
+        st.info("CSV-файл не загружен. Загрузите файл, чтобы начать.")

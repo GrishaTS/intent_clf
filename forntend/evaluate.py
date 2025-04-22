@@ -20,9 +20,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Настройки API
-API_URL = "http://localhost:8190"
-USERNAME = "admin"
-PASSWORD = "secret"
+# API_URL = "http://localhost:8190"
+# USERNAME = "admin"
+# PASSWORD = "secret"
 
 
 def get_token():
