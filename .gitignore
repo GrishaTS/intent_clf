@@ -13,3 +13,4 @@ wheels/
 *.pkl
 *.xlsx
 *.xls
+*.png

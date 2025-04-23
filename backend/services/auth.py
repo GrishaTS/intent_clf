@@ -9,16 +9,6 @@ from passlib.context import CryptContext
 
 from models.auth import TokenData, User, UserInDB
 
-# Для демонстрации используем фиктивную базу данных пользователей
-fake_users_db = {
-    "admin": {
-        "username": "admin",
-        "full_name": "Admin User",
-        "email": "admin@example.com",
-        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",  # password: secret
-        "disabled": False,
-    }
-}
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(
@@ -37,6 +27,28 @@ def verify_password(plain_password, hashed_password):
 
 def get_password_hash(password):
     return pwd_context.hash(password)
+
+
+new_user_password = "ZaYVK1fsbw1ZfbX3OX"
+hashed_password = get_password_hash(new_user_password)
+
+# Для демонстрации используем фиктивную базу данных пользователей
+fake_users_db = {
+    "admin": {
+        "username": "admin",
+        "full_name": "Admin User",
+        "email": "admin@example.com",
+        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",  # password: secret
+        "disabled": True,
+    },
+    "user1": {
+        "username": "user1",
+        "full_name": "User1",
+        "email": "user1@example.com",
+        "hashed_password": hashed_password,  # password: ZaYVK1fsbw1ZfbX3OX
+        "disabled": False,
+    }
+}
 
 
 def get_user(db, username: str):

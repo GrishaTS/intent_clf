@@ -28,6 +28,7 @@ async def search(
     results = [
         SearchResult(
             id=result["id"],
+            request_id=result["request_id"],  # Добавляем это поле
             subject=result["subject"],
             description=result["description"],
             class_name=result["class_name"],

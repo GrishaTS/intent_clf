@@ -21,9 +21,8 @@ password = PASSWORD
 # Боковая панель для настроек API
 with st.sidebar:
     st.title("Настройки API")
-    api_url = st.text_input("URL API", value=API_URL)
-    username = st.text_input("Имя пользователя", value=USERNAME)
-    password = st.text_input("Пароль", value=PASSWORD, type="password")
+    username = st.text_input("Имя пользователя",) #value=USERNAME)
+    password = st.text_input("Пароль", type="password",) # value=PASSWORD,)
 
     if st.button("Сохранить настройки"):
         st.success("Настройки сохранены")
