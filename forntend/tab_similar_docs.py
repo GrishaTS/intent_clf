@@ -70,6 +70,7 @@ def render_similar_docs_tab(api_url, username, password):
                         top3_data = []
                         for result in top3_results:
                             top3_data.append({
+                                "ID заявки": result['request_id'],
                                 "Тема": result['subject'],
                                 "Описание": result['description'],
                                 "Класс": result['class_name'],
@@ -85,6 +86,7 @@ def render_similar_docs_tab(api_url, username, password):
                     table_data = []
                     for i, result in enumerate(search_results["results"]):
                         table_data.append({
+                            "ID заявки": result['request_id'],
                             "Тема": result['subject'],
                             "Описание": result['description'],
                             "Класс": result['class_name'],

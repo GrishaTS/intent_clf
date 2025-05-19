@@ -379,3 +379,191 @@ def save_metrics(metrics_dir, filename, acc, report_dict, report_text, cm, class
     fig_metrics.savefig(os.path.join(metrics_dir, f"classification_metrics_{timestamp}.png"))
     
     return metrics_filename
+
+
+def filter_high_quality_classes(df, min_samples=10, min_f1_score=0.5, api_url=None, username=None, password=None):
+    """
+    Функция для фильтрации классов с высоким качеством классификации.
+    
+    Параметры:
+    df (DataFrame): DataFrame с данными для обработки
+    min_samples (int): Минимальное количество образцов для сохранения класса
+    min_f1_score (float): Минимальное значение F1-score для сохранения класса
+    api_url, username, password: Параметры для подключения к API
+    
+    Возвращает:
+    DataFrame с отфильтрованными данными и словарь с метриками по классам
+    """
+    st.subheader("Анализ качества классификации по классам")
+    st.write(f'''Суть метода в том чтобы оставить те классы на которых мы уже хорошо работаем. 
+             Для этого мы сначала выносим очень редкие наблюдения меньше {min_samples} в отдельную категорию
+             Затем строим на этих данных модель и оставляем только те классы на которых качество получилось больше {min_f1_score} и уже после этого загружаем в базу только те классы на которых хорошо рабоатет''')
+    
+    # Копируем исходный DataFrame
+    df_processed = df.copy()
+    
+    # Подсчитываем количество образцов для каждого класса
+    class_counts = df_processed["class"].value_counts()
+    
+    # Определяем редкие классы (менее min_samples образцов)
+    rare_classes = class_counts[class_counts < min_samples].index.tolist()
+    
+    # Заменяем редкие классы на "Другое"
+    df_processed["class"] = df_processed["class"].apply(
+        lambda x: "Другое" if x in rare_classes else x
+    )
+    
+    # Отображаем статистику после замены
+    with st.expander("Статистика после фильтрации редких классов", expanded=True):
+        st.write(' ')
+        new_counts = df_processed["class"].value_counts()
+        
+        # Создаем DataFrame для отображения
+        new_stats_df = pd.DataFrame({
+            'Значение': new_counts.index,
+            'Количество': new_counts.values,
+            'Процент': (new_counts.values / new_counts.sum() * 100).round(2)
+        })
+        
+        st.dataframe(new_stats_df)
+        
+        # Визуализация нового распределения
+        fig, ax = plt.subplots(figsize=(10, 6))
+        new_counts.plot(kind='bar', ax=ax)
+        plt.title('Распределение значений после фильтрации редких классов')
+        plt.xlabel('Значение')
+        plt.ylabel('Количество')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        st.pyplot(fig)
+    
+    # Разбиваем данные на обучающую и тестовую выборки
+    train_df, test_df = train_test_split(
+        df_processed, test_size=0.2, random_state=42, stratify=df_processed["class"]
+    )
+    
+    # Получаем токен для доступа к API
+    token = get_token(api_url, username, password)
+    if not token:
+        st.error("Не удалось получить токен для доступа к API")
+        return None, None
+    
+    # Очищаем индекс перед загрузкой
+    with st.spinner("Очистка существующего индекса..."):
+        clear_index(token, api_url)
+    
+    # Загружаем обучающую выборку
+    with st.spinner("Загрузка обучающих данных в систему..."):
+        upload_data(train_df, token, api_url)
+    
+    # Получаем предсказания для тестовой выборки
+    with st.spinner("Получение предсказаний для тестовой выборки..."):
+        preds = predict(test_df, token, api_url)
+    
+    # Вычисляем метрики
+    y_true = test_df["class"].tolist()
+    y_pred = preds
+    
+    # Удаляем None из предсказаний
+    valid_indices = [i for i, pred in enumerate(y_pred) if pred is not None]
+    y_true_valid = [y_true[i] for i in valid_indices]
+    y_pred_valid = [y_pred[i] for i in valid_indices]
+    
+    # Получаем отчет о классификации в виде словаря
+    report_dict = classification_report(y_true_valid, y_pred_valid, output_dict=True)
+    
+    # Фильтруем классы с высоким F1-score
+    high_quality_classes = []
+    
+    for class_name, metrics in report_dict.items():
+        if class_name not in ['accuracy', 'macro avg', 'weighted avg']:
+            if metrics['f1-score'] >= min_f1_score:
+                high_quality_classes.append(class_name)
+    
+    # Отображаем метрики по классам
+    with st.expander("Метрики по классам", expanded=True):
+        # Создаем DataFrame для отображения метрик
+        metrics_df = pd.DataFrame([
+            {
+                'Класс': class_name,
+                'Precision': report_dict[class_name]['precision'],
+                'Recall': report_dict[class_name]['recall'],
+                'F1-score': report_dict[class_name]['f1-score'],
+                'Support': report_dict[class_name]['support'],
+                'Качество': 'Высокое' if class_name in high_quality_classes else 'Низкое'
+            }
+            for class_name in report_dict.keys()
+            if class_name not in ['accuracy', 'macro avg', 'weighted avg']
+        ])
+        
+        # Сортируем по F1-score
+        metrics_df = metrics_df.sort_values('F1-score', ascending=False)
+        
+        # Округляем числовые значения
+        for col in ['Precision', 'Recall', 'F1-score']:
+            metrics_df[col] = metrics_df[col].round(3)
+        
+        st.dataframe(metrics_df)
+        
+        # Визуализация F1-score по классам
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        # Создаем цветовую палитру в зависимости от качества
+        colors = metrics_df['Качество'].map({'Высокое': 'green', 'Низкое': 'red'})
+        
+        # Создаем столбчатую диаграмму
+        bars = ax.bar(metrics_df['Класс'], metrics_df['F1-score'], color=colors)
+        
+        # Добавляем горизонтальную линию для порога
+        ax.axhline(y=min_f1_score, color='red', linestyle='--', alpha=0.7)
+        ax.text(0, min_f1_score + 0.01, f'Порог F1-score: {min_f1_score}', color='red')
+        
+        plt.title('F1-score по классам')
+        plt.xlabel('Класс')
+        plt.ylabel('F1-score')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        st.pyplot(fig)
+    
+    # Фильтруем данные, оставляя только классы с высоким качеством
+
+    df_processed["class"] = df_processed["class"].apply(
+                    lambda x: x if x in high_quality_classes else "Другое"
+                )
+    df_high_quality = df_processed
+
+    
+    # Отображаем статистику после фильтрации по качеству
+    with st.expander("Статистика после фильтрации по качеству", expanded=True):
+        high_quality_counts = df_high_quality["class"].value_counts()
+        
+        # Создаем DataFrame для отображения
+        high_quality_stats_df = pd.DataFrame({
+            'Значение': high_quality_counts.index,
+            'Количество': high_quality_counts.values,
+            'Процент': (high_quality_counts.values / high_quality_counts.sum() * 100).round(2)
+        })
+        
+        st.dataframe(high_quality_stats_df)
+        
+        # Визуализация распределения после фильтрации по качеству
+        fig, ax = plt.subplots(figsize=(10, 6))
+        high_quality_counts.plot(kind='bar', ax=ax)
+        plt.title('Распределение значений после фильтрации по качеству')
+        plt.xlabel('Значение')
+        plt.ylabel('Количество')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        st.pyplot(fig)
+    
+    # Отображаем информацию о результатах фильтрации
+    st.info(f"Исходное количество классов: {len(class_counts)}")
+    st.info(f"Количество классов после фильтрации редких: {len(new_counts)}")
+    st.info(f"Количество классов с высоким качеством (F1-score >= {min_f1_score}): {len(high_quality_classes)}")
+    st.info(f"Количество записей в отфильтрованном наборе: {len(df_high_quality)} из {len(df_processed)} ({len(df_high_quality)/len(df_processed)*100:.1f}%)")
+    
+    # Возвращаем отфильтрованный DataFrame и метрики
+    return df_high_quality, report_dict

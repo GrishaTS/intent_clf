@@ -6,7 +6,7 @@ import os
 import json
 from datetime import datetime
 
-from api_utils import get_token, clear_index, upload_data, predict, accuracy_score, train_test_split, classification_report, confusion_matrix 
+from api_utils import get_token, clear_index, upload_data, predict, accuracy_score, train_test_split, classification_report, confusion_matrix, filter_high_quality_classes
 
 def render_data_upload_tab(api_url, username, password):
     """Отображение вкладки загрузки данных и оценки качества"""
@@ -57,8 +57,15 @@ def render_data_upload_tab(api_url, username, password):
             all_columns = df.columns.tolist()
             
             # Выбор колонок для subject и description
-            col1, col2 = st.columns(2)
+            col0, col1, col2 = st.columns(3)
             
+            with col0:
+                # Выбор колонки с идентификатором заявки (ID)
+                id_col = st.selectbox(
+                    "Выберите колонку с ID заявки:",
+                    options=all_columns,
+                    index=all_columns.index("id") if "id" in all_columns else 0
+                )
             with col1:
                 subject_col = st.selectbox(
                     "Выберите колонку для поля subject:",
@@ -78,7 +85,7 @@ def render_data_upload_tab(api_url, username, password):
                 "Выберите колонку с целевой переменной (class):",
                 options=all_columns,
                 index=all_columns.index("class") if "class" in all_columns else 0
-            )
+            ) 
             df = df.dropna(subset=[target_col])
             
             # Расчет статистик по таргету
@@ -115,26 +122,30 @@ def render_data_upload_tab(api_url, username, password):
             
             # Опция для замены редких значений
             st.subheader("Обработка редких значений")
-            replace_rare = st.checkbox("Заменить редкие значения на 'Другое'", value=True)
             
-            top_n_values = st.slider("Количество сохраняемых наиболее частых значений", 
-                                    min_value=1, 
-                                    max_value=min(50, len(target_counts)), 
-                                    value=10)
-            
-            # Переименовываем колонки для соответствия требуемому формату
+            # Опции для фильтрации классов
+            filter_method = st.radio(
+                "Выберите метод фильтрации классов:",
+                ["По частоте встречаемости", "По качеству классификации"]
+            )
             df_processed = df.copy()
-            
-            # Создаем новый DataFrame только с нужными колонками
-            df_processed = df_processed[[subject_col, description_col, target_col]].rename(columns={
+                        # Создаем новый DataFrame только с нужными колонками
+            df_processed = df_processed[[id_col, subject_col, description_col, target_col]].rename(columns={
+                id_col: "id",
                 subject_col: "subject",
                 description_col: "description",
                 target_col: "class"
             })
-            
-            # Заменяем редкие значения на "Другое", если выбрана эта опция
-            if replace_rare:
-                # Получаем топ-N наиболее частых значений
+
+            if filter_method == "По частоте встречаемости":
+                # Существующий код для замены редких значений                
+                top_n_values = st.slider("Количество сохраняемых наиболее частых значений", 
+                                        min_value=1, 
+                                        max_value=min(50, len(target_counts)), 
+                                        value=10)
+                
+                # Заменяем редкие значения на "Другое", если выбрана эта опция
+                    # Получаем топ-N наиболее частых значений
                 top_values = target_counts.head(top_n_values).index.tolist()
                 
                 # Заменяем все остальные значения на "Другое"
@@ -142,6 +153,34 @@ def render_data_upload_tab(api_url, username, password):
                     lambda x: x if x in top_values else "Другое"
                 )
                 
+            else:  # По качеству классификации
+                min_samples = st.slider("Минимальное количество образцов для сохранения класса", 
+                                    min_value=1, 
+                                    max_value=50, 
+                                    value=10)
+                
+                min_f1_score = st.slider("Минимальное значение F1-score для сохранения класса", 
+                                        min_value=0.0, 
+                                        max_value=1.0, 
+                                        value=0.5, 
+                                        step=0.05)
+                
+                if st.checkbox("Установите галочку если выбрали параметры", value=False):
+                    
+                    df_high_quality, report_dict = filter_high_quality_classes(
+                        df_processed, 
+                        min_samples=min_samples, 
+                        min_f1_score=min_f1_score,
+                        api_url=api_url,
+                        username=username,
+                        password=password
+                    )
+                    
+                    if df_high_quality is not None:
+                        # Обновляем df_processed с отфильтрованными данными
+                        df_processed = df_high_quality
+            
+            if filter_method:  
                 # Показываем статистику после замены
                 with st.expander("Статистика после замены редких значений", expanded=False):
                     new_counts = df_processed["class"].value_counts()
@@ -165,9 +204,9 @@ def render_data_upload_tab(api_url, username, password):
                     plt.tight_layout()
                     
                     st.pyplot(fig2)
-            
-            with st.expander("Данные после обработки", expanded=False):
-                st.dataframe(df_processed)
+                
+                with st.expander("Данные после обработки", expanded=False):
+                    st.dataframe(df_processed)
             
             # Опция очистки индекса перед загрузкой
             clear_index_flag = st.checkbox("Очистить существующий индекс перед загрузкой", value=True)
@@ -302,6 +341,19 @@ def render_data_upload_tab(api_url, username, password):
                         plt.tight_layout()
                         st.pyplot(fig)
                     
+                    # Загрузка тестовой выборки после оценки метрик
+                    with st.expander("Загрузка тестовой выборки", expanded=False):
+                        
+                        upload_test_data = st.checkbox("Загрузить тестовую выборку в базу данных", value=True)
+                        
+                        if upload_test_data:
+                            with st.spinner("Загрузка тестовой выборки в систему..."):
+                                test_upload_result = upload_data(test_df, token, api_url)
+                                if test_upload_result:
+                                    st.success(f"Тестовая выборка успешно загружена ({len(test_df)} записей)")
+                                else:
+                                    st.error("Ошибка при загрузке тестовой выборки")
+                    
                     # Сохраняем метрики
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     metrics_filename = f"metrics_{timestamp}.json"
@@ -338,7 +390,7 @@ def render_data_upload_tab(api_url, username, password):
             st.error(f"Ошибка при обработке файла: {str(e)}")
     
     # Отображение последних метрик
-    with st.expander("Последние метрики", expanded=False):
+    with st.expander("Последние метрики", expanded=True):
         # Проверяем, есть ли сохраненные метрики
         metrics_files = [f for f in os.listdir(metrics_dir) if f.endswith('.json')] if os.path.exists(metrics_dir) else []
         

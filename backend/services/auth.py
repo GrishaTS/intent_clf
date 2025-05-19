@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta
 from typing import List, Optional
 
 from config import settings
@@ -8,7 +7,6 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from models.auth import TokenData, User, UserInDB
-
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(
@@ -20,14 +18,11 @@ oauth2_scheme = OAuth2PasswordBearer(
     },
 )
 
-
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
-
 def get_password_hash(password):
     return pwd_context.hash(password)
-
 
 new_user_password = "ZaYVK1fsbw1ZfbX3OX"
 hashed_password = get_password_hash(new_user_password)
@@ -50,35 +45,28 @@ fake_users_db = {
     }
 }
 
-
 def get_user(db, username: str):
     if username in db:
         user_dict = db[username]
         return UserInDB(**user_dict)
     return None
 
-
 def authenticate_user(fake_db, username: str, password: str):
     user = get_user(fake_db, username)
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
+    if not user or not verify_password(password, user.hashed_password):
         return False
     return user
 
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
+def create_access_token(data: dict) -> str:
+    """
+    Генерирует JWT без срока действия.
+    """
     encoded_jwt = jwt.encode(
-        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
+        data,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM
     )
     return encoded_jwt
-
 
 async def get_current_user(
     security_scopes: SecurityScopes, token: str = Depends(oauth2_scheme)
@@ -96,7 +84,10 @@ async def get_current_user(
 
     try:
         payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_exp": False},  # не проверяем exp
         )
         username: str = payload.get("sub")
         if username is None:
@@ -118,7 +109,6 @@ async def get_current_user(
                 headers={"WWW-Authenticate": authenticate_value},
             )
     return user
-
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
     if current_user.disabled:
