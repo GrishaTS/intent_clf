@@ -141,7 +141,7 @@ def render_data_upload_tab(api_url, username, password):
                 # Существующий код для замены редких значений                
                 top_n_values = st.slider("Количество сохраняемых наиболее частых значений", 
                                         min_value=1, 
-                                        max_value=min(50, len(target_counts)), 
+                                        max_value=min(100, len(target_counts)), 
                                         value=10)
                 
                 # Заменяем редкие значения на "Другое", если выбрана эта опция
@@ -156,7 +156,7 @@ def render_data_upload_tab(api_url, username, password):
             else:  # По качеству классификации
                 min_samples = st.slider("Минимальное количество образцов для сохранения класса", 
                                     min_value=1, 
-                                    max_value=50, 
+                                    max_value=100, 
                                     value=10)
                 
                 min_f1_score = st.slider("Минимальное значение F1-score для сохранения класса", 
@@ -216,7 +216,7 @@ def render_data_upload_tab(api_url, username, password):
                 if token:
                     # Разбиваем данные на обучающую и тестовую выборки
                     train_df, test_df = train_test_split(
-                        df_processed, test_size=0.2, random_state=42, stratify=df_processed["class"]
+                        df_processed, test_size=0.1, random_state=42, stratify=df_processed["class"]
                     )
                     
                     with st.spinner("Загрузка данных в систему..."):

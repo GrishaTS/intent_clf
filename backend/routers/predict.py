@@ -19,6 +19,6 @@ async def predict(
     )
 
     # Получаем предсказания
-    predictions = classifier.predict(combined_embedding[0])
+    predictions = classifier.predict(request.subject, request.description, combined_embedding[0])
 
     return PredictionResponse(predictions=predictions)

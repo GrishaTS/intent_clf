@@ -8,7 +8,8 @@ services:
     ports:
       - "27362:8000"
     volumes:
-      - ./app:/app/app
+      - ./backend:/app
+    working_dir: /app
     environment:
       - SECRET_KEY=your-secret-key-change-in-production
       - QDRANT_HOST=qdrant
@@ -44,7 +45,7 @@ services:
     restart: always
 
   streamlit:
-    image: python:3.9-slim
+    image: python:3.10-slim
     ports:
       - "27363:8501"
     volumes:

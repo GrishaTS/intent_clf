@@ -440,7 +440,7 @@ def filter_high_quality_classes(df, min_samples=10, min_f1_score=0.5, api_url=No
     
     # Разбиваем данные на обучающую и тестовую выборки
     train_df, test_df = train_test_split(
-        df_processed, test_size=0.2, random_state=42, stratify=df_processed["class"]
+        df_processed, test_size=0.05, random_state=42, stratify=df_processed["class"]
     )
     
     # Получаем токен для доступа к API
