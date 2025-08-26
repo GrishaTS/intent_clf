@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Настройки модели
     MODEL_NAME: str = "intfloat/multilingual-e5-large"
     MAX_LENGTH: int = 512
-    BATCH_SIZE: int = 32
+    BATCH_SIZE: int = 16 # 32
     DEVICE: str = "cuda" if os.getenv("USE_CUDA", "0") == "1" else "cpu"
     USE_CUDA: str = os.getenv("USE_CUDA", "0")  # Default to "0" (CPU) if not specified
 

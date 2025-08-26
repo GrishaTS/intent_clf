@@ -1,21 +1,21 @@
 version: '3.8'
 
 services:
-  api:
+  api_griga:
     build:
       context: backend
       dockerfile: Dockerfile
     ports:
-      - "27362:8000"
+      - "27364:8000"            # был 27362
     volumes:
       - ./backend:/app
     working_dir: /app
     environment:
       - SECRET_KEY=your-secret-key-change-in-production
-      - QDRANT_HOST=qdrant
+      - QDRANT_HOST=qdrant_griga
       - QDRANT_PORT=6333
       - QDRANT_COLLECTION=requests
-      - USE_CUDA=1  # Установите 1, если хотите использовать GPU
+      - USE_CUDA=1
     deploy:
       resources:
         reservations:
@@ -24,7 +24,7 @@ services:
               count: 1
               capabilities: [gpu]
     depends_on:
-      - qdrant
+      - qdrant_griga
     restart: always
     command: >
       sh -c "
@@ -32,35 +32,34 @@ services:
         uv run uvicorn main:app --host 0.0.0.0 --port 8000
       "
 
-
-  qdrant:
+  qdrant_griga:
     image: qdrant/qdrant:latest
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "6433:6333"             # был 6333
+      - "6434:6334"             # был 6334
     volumes:
-      - qdrant_data:/qdrant/storage
+      - qdrant_data_griga:/qdrant/storage
     environment:
       - QDRANT_ALLOW_CORS=true
     restart: always
 
-  streamlit:
+  streamlit_griga:
     image: python:3.10-slim
     ports:
-      - "27363:8501"
+      - "27365:8501"            # был 27363
     volumes:
-      - ./forntend:/app  # Монтирование всей директории
+      - ./forntend:/app
     working_dir: /app
     environment:
-      API_URL: "http://api:8000"
+      API_URL: "http://api_griga:8000"
     command: >
       sh -c "
         pip install --no-cache-dir streamlit pandas seaborn matplotlib requests scikit-learn tqdm openpyxl xlrd &&
-        ls
+        ls &&
         streamlit run main.py \
           --server.port=8501 \
           --server.fileWatcherType none
       "
 
 volumes:
-  qdrant_data:
+  qdrant_data_griga:
