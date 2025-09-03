@@ -26,22 +26,24 @@ def get_password_hash(password):
 
 new_user_password = "ZaYVK1fsbw1ZfbX3OX"
 hashed_password = get_password_hash(new_user_password)
-
-# Для демонстрации используем фиктивную базу данных пользователей
 fake_users_db = {
     "admin": {
-        "username": "admin",
+        "id": "9d3b5c7d-5af9-4567-9c8e-111111111111",
+        "username": "admin", 
         "full_name": "Admin User",
         "email": "admin@example.com",
-        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",  # password: secret
-        "disabled": False,
+        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW", # password: secret 
+        "disabled": False, 
+        "language": "ru" 
     },
     "user1": {
+        "id": "877df8e4-f970-4fb5-a686-222222222222",
         "username": "user1",
         "full_name": "User1",
         "email": "user1@example.com",
-        "hashed_password": hashed_password,  # password: ZaYVK1fsbw1ZfbX3OX
+        "hashed_password": hashed_password, # password: ZaYVK1fsbw1ZfbX3OX
         "disabled": False,
+        "language": "en"
     }
 }
 

@@ -1,66 +1,42 @@
-# main.py
 import streamlit as st
 
-from config import API_URL, USERNAME, PASSWORD
+from config import API_URL
+from auth_ui import ensure_auth, top_bar, current_lang, tr
 from tab_classification import render_classification_tab
 from tab_similar_docs import render_similar_docs_tab
 from tab_data_upload import render_data_upload_tab
-from i18n import t, get_translations, get_lang_options, get_lang_display_name
+from i18n import t
 
-# --- Инициализация языка в session_state ---
-if "lang" not in st.session_state:
-    st.session_state["lang"] = "ru"
-lang = st.session_state["lang"]
-TR = get_translations(lang)
+st.markdown("<style>[data-testid='stSidebar']{display:none!important}</style>", unsafe_allow_html=True)
+st.session_state.setdefault("auth", {"ok": False, "username": None, "password": None, "token": None})
+st.session_state.setdefault("lang", "ru")
+st.session_state.setdefault("lang_login", "ru")
 
-# --- Конфиг страницы (title зависит от языка) ---
+# ===== page =====
 st.set_page_config(
-    page_title=t("app.title", lang),
+    page_title=t("app.title", current_lang()),
     page_icon="🔍",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# --- Верхняя строка с селектором языка (рядом с верхней панелью) ---
-top_left, _, _, top_right = st.columns([1, 1, 1, 1])
-with top_right:
-    st.selectbox(
-        TR["common.lang_label"],
-        options=get_lang_options(),
-        index=get_lang_options().index(lang),
-        key="lang",
-        format_func=get_lang_display_name,
-    )
-# Обновляем локальные ссылки на язык/переводчик (на случай смены)
-lang = st.session_state["lang"]
-TR = get_translations(lang)
+# ===== app =====
+ensure_auth(API_URL)
+_ = tr()
+top_bar()
+st.title(t("app.title", current_lang()))
 
-# --- Глобальные параметры API (из env / config) ---
-api_url = API_URL
-username = USERNAME
-password = PASSWORD
+username = st.session_state["auth"]["username"]
+password = st.session_state["auth"]["password"]
+token = st.session_state["auth"]["token"]  # если понадобится — есть в state
 
-# --- Sidebar: локализованные подписи ---
-with st.sidebar:
-    st.title(TR["sidebar.title"])
-    username = st.text_input(TR["sidebar.username"])
-    password = st.text_input(TR["sidebar.password"], type="password")
-
-    if st.button(TR["sidebar.save"]):
-        st.success(TR["sidebar.saved_success"])
-
-# --- Tabs: локализованные названия ---
-tab1, tab2, tab3 = st.tabs([
-    TR["tabs.classification"],
-    TR["tabs.similar_docs"],
-    TR["tabs.data_upload"],
-])
+tab1, tab2, tab3 = st.tabs([_["tabs.classification"], _["tabs.similar_docs"], _["tabs.data_upload"]])
 
 with tab1:
-    render_classification_tab(api_url, username, password)
+    render_classification_tab(API_URL, username, password)
 
 with tab2:
-    render_similar_docs_tab(api_url, username, password)
+    render_similar_docs_tab(API_URL, username, password)
 
 with tab3:
-    render_data_upload_tab(api_url, username, password)
+    render_data_upload_tab(API_URL, username, password)

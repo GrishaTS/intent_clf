@@ -18,6 +18,7 @@ def render_classification_tab(api_url, username, password):
 
     # --- Блок выбора примера ---
     st.subheader(_("classification.pick_example.title"))
+    # if username == "?":
     use_default = st.checkbox(_("classification.pick_example.use_default"))
 
     if use_default:

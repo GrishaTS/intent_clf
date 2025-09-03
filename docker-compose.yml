@@ -35,8 +35,8 @@ services:
   qdrant_griga:
     image: qdrant/qdrant:latest
     ports:
-      - "6433:6333"             # был 6333
-      - "6434:6334"             # был 6334
+      - "6555:6333"
+      - "6777:6334"
     volumes:
       - qdrant_data_griga:/qdrant/storage
     environment:

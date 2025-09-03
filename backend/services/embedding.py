@@ -1,189 +1,161 @@
+# embedding.py
 import logging
 import time
-from typing import List, Union
+from typing import List, Optional
 
 import numpy as np
 import torch
-from config import settings
 from transformers import AutoModel, AutoTokenizer
 
-# Настройка логгера
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+from config import settings
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("embedding_service")
 
 
+def _to_device(batch: dict, device: torch.device, non_blocking: bool) -> dict:
+    return {k: v.to(device, non_blocking=non_blocking) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+
 class E5Embedder:
-    def __init__(self):
-        logger.info(f"Initializing E5Embedder with model: {settings.MODEL_NAME}")
-        self.model_name = settings.MODEL_NAME
-        self.max_length = settings.MAX_LENGTH
-        self.batch_size = settings.BATCH_SIZE
+    """
+    Лёгкий и надёжный экстрактор эмбеддингов.
+    - Без mixed device: модель и входы всегда на одном девайсе.
+    - Без device_map='auto'.
+    - Возвращает np.ndarray(dtype=float32).
+    """
 
-        # Проверка доступности CUDA и настройка устройства
-        if settings.USE_CUDA == "1":
-            logger.info("CUDA requested. Checking availability...")
-            if torch.cuda.is_available():
-                self.device = "cuda"
-                gpu_info = torch.cuda.get_device_properties(0)
-                logger.info(
-                    f"Using GPU: {gpu_info.name} with {gpu_info.total_memory / 1024**3:.2f} GB memory"
-                )
-            else:
-                self.device = "cpu"
-                logger.warning("CUDA requested but not available. Falling back to CPU.")
-        else:
-            self.device = "cpu"
-            logger.info("Using CPU as specified in settings")
+    def __init__(self) -> None:
+        self.model_name: str = settings.MODEL_NAME
+        self.max_length: int = int(getattr(settings, "MAX_LENGTH", 256))
+        self.batch_size: int = int(getattr(settings, "BATCH_SIZE", 32))
+        self.use_cuda_flag: bool = str(getattr(settings, "USE_CUDA", "0")) == "1"
+        self.use_amp: bool = bool(getattr(settings, "USE_AMP", True))  # AMP только на CUDA
 
-        self.tokenizer = None
-        self.model = None
+        self.device: torch.device = self._select_device()
+        self.tokenizer: Optional[AutoTokenizer] = None
+        self.model: Optional[AutoModel] = None
+
         logger.info(
-            f"E5Embedder initialized. Device: {self.device}, Batch size: {self.batch_size}"
+            f"E5Embedder init: model='{self.model_name}', "
+            f"device='{self.device}', batch_size={self.batch_size}, "
+            f"max_length={self.max_length}, amp={self.use_amp}"
         )
 
-    def load_model(self):
-        if self.tokenizer is None or self.model is None:
-            logger.info(f"Loading model {self.model_name}...")
-            start_time = time.time()
+    def _select_device(self) -> torch.device:
+        if self.use_cuda_flag and torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(0)
+            logger.info(f"Using CUDA: {props.name}, {props.total_memory / 1024**3:.2f} GB")
+            return torch.device("cuda:0")
+        if self.use_cuda_flag and not torch.cuda.is_available():
+            logger.warning("CUDA requested but not available → CPU fallback.")
+        return torch.device("cpu")
 
-            try:
-                logger.info("Loading tokenizer...")
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                logger.info("Tokenizer loaded successfully")
+    def _ensure_loaded(self) -> None:
+        if self.tokenizer is not None and self.model is not None:
+            return
+        t0 = time.time()
+        logger.info(f"Loading HF tokenizer/model: {self.model_name}")
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = AutoModel.from_pretrained(self.model_name)
+        self.model.to(self.device)
+        self.model.eval()
+        logger.info(f"Loaded in {time.time() - t0:.2f}s")
 
-                logger.info("Loading model...")
-                self.model = AutoModel.from_pretrained(self.model_name)
-                logger.info(f"Moving model to device: {self.device}")
-                self.model.to(self.device)
-                self.model.eval()
-                logger.info("Model loaded and set to evaluation mode")
+    @staticmethod
+    def _mean_pool(last_hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        # last_hidden_state: (B, T, H); attention_mask: (B, T)
+        mask = attention_mask.unsqueeze(-1).type_as(last_hidden_state)  # (B, T, 1)
+        summed = (last_hidden_state * mask).sum(dim=1)                  # (B, H)
+        denom = mask.sum(dim=1).clamp(min=1e-9)                         # (B, 1)
+        return summed / denom                                           # (B, H)
 
-                load_time = time.time() - start_time
-                logger.info(f"Model loading completed in {load_time:.2f} seconds")
-            except Exception as e:
-                logger.error(f"Error loading model: {str(e)}")
-                raise
-        else:
-            logger.debug("Model already loaded, reusing existing instance")
-        return self
+    def _encode_batch(self, texts: List[str]) -> dict:
+        # padding='longest' экономит память; truncation с max_length — обязательны
+        return self.tokenizer(
+            texts,
+            padding=True,              # к самому длинному в батче
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+
+    def _forward_once(self, encoded: dict) -> torch.Tensor:
+        non_blocking = self.device.type == "cuda"
+        encoded = _to_device(encoded, self.device, non_blocking=non_blocking)
+
+        amp_enabled = self.use_amp and self.device.type == "cuda"
+        with torch.inference_mode():
+            if amp_enabled:
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    out = self.model(**encoded)
+            else:
+                out = self.model(**encoded)
+
+        pooled = self._mean_pool(out.last_hidden_state, encoded["attention_mask"])
+        return pooled  # (B, H) on self.device
 
     def get_embeddings(self, texts: List[str]) -> np.ndarray:
         """
-        Извлекает эмбединги из текстов с использованием модели E5
+        Возвращает эмбеддинги размера (N, H) как np.float32.
         """
-        logger.info(f"Extracting embeddings for {len(texts)} texts")
-        self.load_model()
+        self._ensure_loaded()
 
-        embeddings = []
-        total_batches = (len(texts) + self.batch_size - 1) // self.batch_size
-        start_time = time.time()
+        if not texts:
+            h = int(self.model.config.hidden_size)  # type: ignore
+            return np.empty((0, h), dtype=np.float32)
 
-        try:
-            with torch.no_grad():
-                for i in range(0, len(texts), self.batch_size):
-                    batch_start_time = time.time()
-                    batch_texts = texts[i : i + self.batch_size]
-                    batch_num = i // self.batch_size + 1
+        outputs: List[torch.Tensor] = []
+        total = len(texts)
+        total_batches = (total + self.batch_size - 1) // self.batch_size
 
-                    logger.info(
-                        f"Processing batch {batch_num}/{total_batches} with {len(batch_texts)} texts"
-                    )
+        for s in range(0, total, self.batch_size):
+            e = min(s + self.batch_size, total)
+            batch = texts[s:e]
+            b_idx = s // self.batch_size + 1
+            logger.info(f"Embedding batch {b_idx}/{total_batches} (size={len(batch)})")
 
-                    logger.debug("Tokenizing batch...")
-                    encoded = self.tokenizer(
-                        batch_texts,
-                        truncation=True,
-                        max_length=self.max_length,
-                        padding="max_length",
-                        return_tensors="pt",
-                    )
+            encoded = self._encode_batch(batch)
 
-                    logger.debug(f"Moving tensors to {self.device}")
-                    try:
-                        encoded = {k: v.to(self.device) for k, v in encoded.items()}
-                    except RuntimeError as e:
-                        logger.error(f"Error moving tensors to device: {str(e)}")
-                        if "CUDA" in str(e):
-                            logger.error("CUDA error detected. Falling back to CPU")
-                            self.device = "cpu"
-                            self.model.to("cpu")
-                            encoded = {k: v.to("cpu") for k, v in encoded.items()}
+            # 1-я попытка на текущем девайсе
+            try:
+                pooled = self._forward_once(encoded)
+            except RuntimeError as ex:
+                # Одноразовый откат на CPU при CUDA-ошибке
+                if self.device.type == "cuda":
+                    msg = str(ex).lower()
+                    if "cuda" in msg or "device-side assert" in msg or "cublas" in msg:
+                        logger.warning(f"CUDA failure on batch {b_idx}: {ex}. Fallback to CPU for this run.")
+                        self.device = torch.device("cpu")
+                        assert self.model is not None
+                        self.model.to(self.device)
+                        pooled = self._forward_once(encoded)
+                    else:
+                        raise
+                else:
+                    raise
 
-                    logger.debug("Running model inference...")
-                    output = self.model(**encoded)
-                    token_embeddings = output.last_hidden_state
-                    attention_mask = encoded["attention_mask"]
+            outputs.append(pooled.detach().cpu())
 
-                    logger.debug("Computing mean pooling...")
-                    # Расширяем маску для перемножения с эмбеддингами
-                    input_mask_expanded = (
-                        attention_mask.unsqueeze(-1)
-                        .expand(token_embeddings.size())
-                        .float()
-                    )
-                    sum_embeddings = torch.sum(
-                        token_embeddings * input_mask_expanded, dim=1
-                    )
-                    sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
-                    batch_emb = (sum_embeddings / sum_mask).cpu().numpy()
+        embs = torch.cat(outputs, dim=0).contiguous().to(dtype=torch.float32).numpy()
+        logger.info(f"Embeddings ready: shape={embs.shape}, dtype={embs.dtype}")
+        return embs
 
-                    embeddings.append(batch_emb)
-
-                    batch_time = time.time() - batch_start_time
-                    logger.info(
-                        f"Batch {batch_num}/{total_batches} processed in {batch_time:.2f} seconds"
-                    )
-
-            total_time = time.time() - start_time
-            logger.info(f"All embeddings extracted in {total_time:.2f} seconds")
-
-            result = np.concatenate(embeddings, axis=0)
-            logger.info(f"Final embeddings shape: {result.shape}")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error during embedding extraction: {str(e)}", exc_info=True)
-            raise
-
-    def get_combined_embeddings(
-        self, subjects: List[str], descriptions: List[str]
-    ) -> np.ndarray:
+    def get_combined_embeddings(self, subjects: List[str], descriptions: List[str]) -> np.ndarray:
         """
-        Извлекает и комбинирует эмбединги из тем и описаний
+        Конкатенация эмбеддингов subject и description → (N, 2H), np.float32.
         """
         if len(subjects) != len(descriptions):
-            logger.error(
-                f"Mismatch in lengths: subjects={len(subjects)}, descriptions={len(descriptions)}"
-            )
-            raise ValueError("Subjects and descriptions must have the same length")
+            raise ValueError(f"Lengths mismatch: subjects={len(subjects)}, descriptions={len(descriptions)}")
 
-        logger.info(f"Extracting combined embeddings for {len(subjects)} items")
-
-        logger.info("Extracting subject embeddings...")
-        start_time = time.time()
-        subject_embeddings = self.get_embeddings(subjects)
-        subject_time = time.time() - start_time
-        logger.info(
-            f"Subject embeddings extracted in {subject_time:.2f} seconds. Shape: {subject_embeddings.shape}"
-        )
-
-        logger.info("Extracting description embeddings...")
-        start_time = time.time()
-        description_embeddings = self.get_embeddings(descriptions)
-        desc_time = time.time() - start_time
-        logger.info(
-            f"Description embeddings extracted in {desc_time:.2f} seconds. Shape: {description_embeddings.shape}"
-        )
-
-        logger.info("Combining embeddings...")
-        combined = np.concatenate([subject_embeddings, description_embeddings], axis=1)
-        logger.info(f"Combined embeddings shape: {combined.shape}")
-
+        logger.info(f"Extracting combined embeddings for N={len(subjects)}")
+        subj = self.get_embeddings(subjects)        # (N, H)
+        desc = self.get_embeddings(descriptions)    # (N, H)
+        combined = np.concatenate([subj, desc], axis=1).astype(np.float32, copy=False)
+        logger.info(f"Combined shape={combined.shape}, dtype={combined.dtype}")
         return combined
 
 
-# Создаем синглтон для переиспользования модели
+# Синглтон
 logger.info("Creating E5Embedder singleton instance")
 embedder = E5Embedder()

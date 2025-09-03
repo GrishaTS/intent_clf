@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 from config import settings
@@ -10,41 +10,48 @@ from qdrant_client.http import models
 logger = logging.getLogger("vector_db_service")
 
 
+def _user_collection_name(user_id):
+    return f"u_{user_id}"
+
+
 class VectorDBService:
-    def __init__(self):
+    """
+    Работа с Qdrant в парадигме: у каждого пользователя своя коллекция.
+    Все методы принимают user_id и действуют в пределах его коллекции.
+    """
+
+    def __init__(self, vector_size: int = 1024 * 2):
         self.client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-        self.collection_name = settings.QDRANT_COLLECTION
-        self.vector_size = 1024 * 2  # 1024 для subject + 1024 для description
-        self.init_collection()
+        self.vector_size = vector_size
+        self._known_collections = set()  # локальный кэш существующих коллекций
         logger.info(
-            f"Initialized VectorDBService with host={settings.QDRANT_HOST}, port={settings.QDRANT_PORT}"
+            f"Initialized VectorDBService (multi-collection) host={settings.QDRANT_HOST}, port={settings.QDRANT_PORT}"
         )
 
-    def init_collection(self):
+    # ===== infra =====
+    def _ensure_user_collection(self, user_id: Union[str, uuid.UUID]):
         """
-        Инициализирует коллекцию в Qdrant, если она еще не существует
+        Создаёт коллекцию пользователя при отсутствии + индексы по payload.
         """
-        logger.info(f"Checking if collection {self.collection_name} exists")
-        existing = [c.name for c in self.client.get_collections().collections]
+        name = _user_collection_name(user_id)
+        if name in self._known_collections:
+            return name
 
-        if self.collection_name not in existing:
-            logger.info(
-                f"Creating collection {self.collection_name} with vector size {self.vector_size}"
-            )
-
-            # Создаём коллекцию только с параметрами векторов
+        existing = {c.name for c in self.client.get_collections().collections}
+        if name not in existing:
+            logger.info(f"Creating collection {name} (size={self.vector_size})")
             self.client.create_collection(
-                collection_name=self.collection_name,
+                collection_name=name,
                 vectors_config=models.VectorParams(
                     size=self.vector_size,
-                    distance=models.Distance.COSINE
+                    distance=models.Distance.COSINE,
                 ),
                 shard_number=1,
                 replication_factor=1,
-                on_disk_payload=False
+                on_disk_payload=False,
             )
 
-            # Индексируем поля payload
+            # Индексы для типовых полей
             for field_name, field_type in {
                 "request_id":  models.PayloadSchemaType.KEYWORD,
                 "subject":     models.PayloadSchemaType.TEXT,
@@ -52,140 +59,140 @@ class VectorDBService:
                 "class_name":  models.PayloadSchemaType.KEYWORD,
                 "task":        models.PayloadSchemaType.KEYWORD,
             }.items():
-                logger.info(f"Creating payload index for field: {field_name}")
                 self.client.create_payload_index(
-                    collection_name=self.collection_name,
+                    collection_name=name,
                     field_name=field_name,
-                    field_schema=field_type
+                    field_schema=field_type,
                 )
 
-            logger.info(f"Collection {self.collection_name} created successfully")
+            logger.info(f"Collection {name} created")
         else:
-            logger.info(f"Collection {self.collection_name} already exists")
+            logger.info(f"Collection {name} already exists")
 
+        self._known_collections.add(name)
+        return name
 
-
-    def string_to_uuid(self, string_id):
-        """
-        Преобразует строковый ID в UUID версии 5
-        """
+    # ===== utils =====
+    def string_to_uuid(self, string_id: str) -> str:
+        """Детерминированный UUIDv5 из любой строки (для point.id)."""
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, string_id))
 
+    # ===== API =====
     def upload_vectors(
-        self, vectors: np.ndarray, payloads: List[Dict[str, Any]]
+        self,
+        user_id: Union[str, uuid.UUID],
+        vectors: np.ndarray,
+        payloads: List[Dict[str, Any]],
     ) -> List[str]:
         """
-        Загружает векторы и метаданные в Qdrant.
-        Требует, чтобы в каждом элементе payloads был ключ 'request_id'.
+        Загрузка векторов в коллекцию пользователя.
+        Требуется payload['request_id'] для каждого элемента.
+        Возвращает список point.id (UUIDv5 от request_id).
         """
-        # Проверяем, что у всех элементов есть request_id
-        missing_ids = [i for i, p in enumerate(payloads) if "request_id" not in p]
-        if missing_ids:
-            raise ValueError(
-                f"Missing 'request_id' in payloads at indices: {missing_ids}"
-            )
+        coll = self._ensure_user_collection(user_id)
 
-        # Создаем точки для загрузки
-        points = []
-        ids = []
+        missing = [i for i, p in enumerate(payloads) if "request_id" not in p]
+        if missing:
+            raise ValueError(f"Missing 'request_id' in payloads at indices: {missing}")
 
-        for i in range(len(vectors)):
-            # Генерируем UUID на основе строкового ID
-            original_id = payloads[i]["request_id"]
-            point_id = self.string_to_uuid(original_id)
-            ids.append(point_id)
+        if len(vectors) != len(payloads):
+            raise ValueError("vectors и payloads должны быть одинаковой длины")
 
+        points, ids = [], []
+        for vec, pl in zip(vectors, payloads):
+            pid = self.string_to_uuid(pl["request_id"])
+            ids.append(pid)
             points.append(
                 models.PointStruct(
-                    id=point_id, vector=vectors[i].tolist(), payload=payloads[i]
+                    id=pid,
+                    vector=vec.tolist(),
+                    payload=pl,
                 )
             )
 
-        logger.info(
-            f"Uploading {len(vectors)} vectors to Qdrant collection {self.collection_name}"
-        )
-
-        # Загружаем векторы в Qdrant
-        self.client.upsert(collection_name=self.collection_name, points=points)
-
-        logger.info(f"Successfully uploaded {len(vectors)} vectors")
+        logger.info(f"[{coll}] upsert {len(points)} points")
+        self.client.upsert(collection_name=coll, points=points)
         return ids
 
     def search_vectors(
-        self, query_vector: np.ndarray, limit: int = 10
+        self,
+        user_id: Union[str, uuid.UUID],
+        query_vector: np.ndarray,
+        limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """
-        Ищет ближайшие векторы в Qdrant
+        Поиск ближайших векторов в пределах коллекции пользователя.
         """
-        logger.info(
-            f"Searching for {limit} closest vectors in collection {self.collection_name}"
-        )
+        coll = self._ensure_user_collection(user_id)
 
-        search_result = self.client.search(
-            collection_name=self.collection_name,
+        logger.info(f"[{coll}] search top-{limit}")
+        hits = self.client.search(
+            collection_name=coll,
             query_vector=query_vector.tolist(),
             limit=limit,
         )
 
         results = []
-        for res in search_result:
-            result = {
-                "id": res.id,
-                "request_id": res.payload.get("request_id", ""),
-                "score": res.score,
-                **res.payload,
-            }
-            results.append(result)
-
-        logger.info(f"Found {len(results)} results")
+        for h in hits:
+            results.append(
+                {
+                    "id": h.id,
+                    "request_id": h.payload.get("request_id", ""),
+                    "score": h.score,
+                    **h.payload,
+                }
+            )
         return results
 
-    def search_by_id(self, request_id: str) -> Dict[str, Any]:
+    def search_by_id(
+        self,
+        user_id: Union[str, uuid.UUID],
+        request_id: str,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Ищет запись по оригинальному ID
+        Поиск записи по оригинальному request_id внутри коллекции пользователя.
         """
-        logger.info(f"Searching for record with request_id={request_id}")
+        coll = self._ensure_user_collection(user_id)
 
-        search_result = self.client.scroll(
-            collection_name=self.collection_name,
+        logger.info(f"[{coll}] scroll by request_id={request_id}")
+        found, _ = self.client.scroll(
+            collection_name=coll,
             scroll_filter=models.Filter(
                 must=[
                     models.FieldCondition(
-                        key="request_id", match=models.MatchValue(value=request_id)
+                        key="request_id",
+                        match=models.MatchValue(value=request_id),
                     )
                 ]
             ),
             limit=1,
         )
 
-        if search_result[0]:  # Если есть результаты
-            point = search_result[0][0]
-            result = {
-                "id": point.id,
-                "request_id": point.payload.get("request_id", ""),
-                **point.payload,
+        if found:
+            p = found[0]
+            return {
+                "id": p.id,
+                "request_id": p.payload.get("request_id", ""),
+                **p.payload,
             }
-            return result
-
-        logger.warning(f"No record found with request_id={request_id}")
         return None
-    
-    def clear_collection(self):
+
+    def clear_user_collection(self, user_id: Union[str, uuid.UUID]) -> bool:
         """
-        Очищает коллекцию в Qdrant
+        Полностью очищает коллекцию конкретного пользователя (drop + recreate).
         """
-        logger.info(f"Clearing collection {self.collection_name}")
+        coll = _user_collection_name(user_id)
+        logger.info(f"[{coll}] drop collection")
         try:
-            self.client.delete_collection(collection_name=self.collection_name)
-            logger.info(f"Collection {self.collection_name} deleted")
-            # Пересоздаем коллекцию
-            self.init_collection()
+            self.client.delete_collection(collection_name=coll)
+            # удалить из кэша, при следующем вызове пересоздастся
+            self._known_collections.discard(coll)
+            # ленивое пересоздание при следующем обращении
             return True
         except Exception as e:
-            logger.error(f"Error clearing collection: {str(e)}")
+            logger.error(f"[{coll}] drop error: {e}")
             raise
 
 
-
-# Создаем синглтон для переиспользования клиента Qdrant
+# Синглтон
 vector_db = VectorDBService()

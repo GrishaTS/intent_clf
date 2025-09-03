@@ -12,3 +12,4 @@ scikit-learn>=1.2.0
 qdrant-client>=1.1.0
 pandas>=2.0.0
 pytest
+huggingface_hub[hf_xet]

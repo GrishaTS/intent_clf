@@ -13,7 +13,7 @@ logger = logging.getLogger("classification_service")
 
 
 class FilteredKNNClassificationService:
-    """Two-stage classifier using KNN search in Qdrant and reranker filtering."""
+    """Двухэтапный классификатор: сначала KNN в Qdrant, потом фильтрация reranker'ом."""
 
     def __init__(self) -> None:
         self.k = settings.KNN_NEIGHBORS
@@ -31,7 +31,7 @@ class FilteredKNNClassificationService:
         self.model.eval()
 
     def _rerank_scores(self, query: str, docs: List[str]) -> List[float]:
-        """Computes reranker scores for a query and list of documents."""
+        """Считает reranker-оценки для пары (query, doc)."""
         pairs = [(query, doc) for doc in docs]
         encoded = self.tokenizer.batch_encode_plus(
             pairs,
@@ -51,13 +51,21 @@ class FilteredKNNClassificationService:
         return logits[:, 0].tolist()
 
     def predict(
-        self, subject: str, description: str, query_vector: np.ndarray, collection_name: Optional[str] = None
+        self,
+        user_id: str,
+        subject: str,
+        description: str,
+        query_vector: np.ndarray,
     ) -> List[Dict[str, float]]:
-        """Return class probabilities для запроса с учётом топ‐K после реранжирования."""
+        """Предсказывает класс для запроса: top-K соседей + reranker."""
         query_text = f"{subject} {description}"
 
-        # 1) Получаем соседей из векторной БД (лимит=50)
-        neighbors = vector_db.search_vectors(query_vector, limit=50,)  # collection_name=collection_name
+        # 1) Соседи из векторной БД (лимит=50)
+        neighbors = vector_db.search_vectors(
+            user_id=user_id,
+            query_vector=query_vector,
+            limit=50,
+        )
 
         if not neighbors:
             logger.warning("No neighbors found in vector DB")
@@ -69,28 +77,26 @@ class FilteredKNNClassificationService:
         neighbor_labels = [n.get("class_name", "") for n in neighbors]
         sims = [float(n.get("score", 0.0)) for n in neighbors]
 
-        # 2) Считаем reranker‐оценки (пробабилистыческие, от 0 до 1)
+        # 2) Reranker
         scores = self._rerank_scores(query_text, neighbor_texts)
 
-        # 3) Оставляем только те индексы, у которых reranker_score >= threshold
+        # 3) Фильтрация по threshold
         filtered = [(i, scores[i]) for i in range(len(scores)) if scores[i] >= self.threshold]
 
-        # 4) Сортируем их по убыванию reranker_score
+        # 4) Сортировка по убыванию reranker_score
         filtered_sorted = sorted(filtered, key=lambda x: x[1], reverse=True)
 
-        # 5) Берём не более self.k самых релевантных
+        # 5) Top-K
         topk = filtered_sorted[: self.k]
         kept_indices = [i for i, _ in topk]
 
-        # 6) Если после фильтрации и топ‐K ничего не осталось, делаем fallback:
+        # 6) Fallback, если пусто
         if not kept_indices:
-            # fallback: можно взять просто top-K по изначальной sim из vector DB
-            # Например, сортируем neighbors по sims и берём первые k
             sims_with_idx = list(enumerate(sims))
             sims_sorted = sorted(sims_with_idx, key=lambda x: x[1], reverse=True)
             kept_indices = [i for i, _ in sims_sorted[: self.k]]
 
-        # Вспомогательная функция для агрегации
+        # 7) Агрегация
         def _aggregate(indices: List[int]) -> List[Dict[str, float]]:
             class_scores: Dict[str, float] = {}
             total_sim = 0.0
@@ -101,7 +107,6 @@ class FilteredKNNClassificationService:
                 total_sim += sim
 
             if total_sim <= 1e-12:
-                # если сумма всех sim близка к 0, тогда считаем равномерные вероятности по частоте
                 counts = Counter([neighbor_labels[i] for i in indices])
                 total = sum(counts.values())
                 return [
@@ -114,7 +119,6 @@ class FilteredKNNClassificationService:
                 for lbl, score in sorted(class_scores.items(), key=lambda x: x[1], reverse=True)
             ]
 
-        # 7) Собираем предсказание по отфильтрованным индексам
         predictions = _aggregate(kept_indices)
         return predictions
 

@@ -11,22 +11,21 @@ LANG_NAMES: Dict[str, str] = {
 }
 
 # Плоские ключи: section.subsection.element
-from typing import Dict
-
 LANGS: Dict[str, Dict[str, str]] = {
     "ru": {
         # === App / Common ===
         "app.title": "Классификатор запросов",
-        "common.lang_label": "Язык интерфейса",
+        "common.lang_label": "Language",
         "common.subject": "Тема",
         "common.description": "Описание",
 
-        # === Sidebar ===
-        "sidebar.title": "Настройки API",
-        "sidebar.username": "Имя пользователя",
-        "sidebar.password": "Пароль",
-        "sidebar.save": "Сохранить настройки",
-        "sidebar.saved_success": "Настройки сохранены",
+        # === Auth ===
+        "auth.title": "Авторизация",
+        "auth.username": "Имя пользователя",
+        "auth.password": "Пароль",
+        "auth.sign_in": "Войти",
+        "auth.sign_out": "Выйти",
+        "auth.failed": "Неверные учетные данные",
 
         # === Tabs ===
         "tabs.classification": "Классификация",
@@ -82,7 +81,7 @@ LANGS: Dict[str, Dict[str, str]] = {
         "similar.table.score_short": "Оценка",
         "similar.plot.class_dist.title": "Распределение документов по классам",
         "similar.plot.class_dist.xlabel": "Класс",
-        "similar.plot.class_dist.ylabel": "Количество документов",
+        "similar.plot.class_dist.ylabel": "Количество",
         "similar.plot.class_pie.title": "Процентное соотношение классов",
         "similar.none": "Похожие документы не найдены",
 
@@ -128,7 +127,7 @@ LANGS: Dict[str, Dict[str, str]] = {
         "data_upload.spinner.upload": "Загрузка данных в систему...",
         "data_upload.info.clearing": "Очистка существующего индекса...",
         "data_upload.success.upload_done": "Данные успешно загружены",
-        "data_upload.spinner.predict": "Получение предсказаний для тестовой выборки...",
+        "data_upload.spinner.predict": "Расчёт метрик на бэкенде...",  # <— обновлено
 
         "data_upload.metrics.title": "Результаты оценки",
         "data_upload.metrics.accuracy": "Accuracy: {acc:.4f}",
@@ -140,6 +139,8 @@ LANGS: Dict[str, Dict[str, str]] = {
         "data_upload.metrics.cm_title": "Матрица ошибок",
         "data_upload.metrics.predicted": "Предсказанный класс",
         "data_upload.metrics.true": "Истинный класс",
+        "data_upload.metrics.no_metrics": "Нет метрик для отображения",   # <— добавлено
+        "data_upload.metrics.no_cm": "Нет матрицы ошибок",                 # <— добавлено
 
         "data_upload.upload_test.title": "Загрузка тестовой выборки",
         "data_upload.upload_test.checkbox": "Загрузить тестовую выборку в базу данных",
@@ -152,7 +153,7 @@ LANGS: Dict[str, Dict[str, str]] = {
 
         "data_upload.last_metrics.title": "Последние метрики",
         "data_upload.last_metrics.file": "Файл: {filename}",
-        "data_upload.last_metrics.date": "Дата загрузки: {ts}",
+        "data_upload.last_metrics.date": "Дата расчёта: {ts}",  # <— обновлено
         "data_upload.last_metrics.cm_caption": "Матрица ошибок",
         "data_upload.last_metrics.metrics_caption": "Метрики классификации по классам",
         "data_upload.last_metrics.none": "Нет сохранённых метрик. Загрузите файл и рассчитайте метрики.",
@@ -165,12 +166,13 @@ LANGS: Dict[str, Dict[str, str]] = {
         "common.subject": "Subject",
         "common.description": "Description",
 
-        # === Sidebar ===
-        "sidebar.title": "API Settings",
-        "sidebar.username": "Username",
-        "sidebar.password": "Password",
-        "sidebar.save": "Save settings",
-        "sidebar.saved_success": "Settings saved",
+        # === Auth ===
+        "auth.title": "Authorization",
+        "auth.username": "Username",
+        "auth.password": "Password",
+        "auth.sign_in": "Sign in",
+        "auth.sign_out": "Sign out",
+        "auth.failed": "Invalid credentials",
 
         # === Tabs ===
         "tabs.classification": "Classification",
@@ -272,7 +274,7 @@ LANGS: Dict[str, Dict[str, str]] = {
         "data_upload.spinner.upload": "Uploading data...",
         "data_upload.info.clearing": "Clearing existing index...",
         "data_upload.success.upload_done": "Data uploaded successfully",
-        "data_upload.spinner.predict": "Getting predictions for test split...",
+        "data_upload.spinner.predict": "Computing metrics on backend...",  # <— updated
 
         "data_upload.metrics.title": "Evaluation results",
         "data_upload.metrics.accuracy": "Accuracy: {acc:.4f}",
@@ -284,6 +286,8 @@ LANGS: Dict[str, Dict[str, str]] = {
         "data_upload.metrics.cm_title": "Confusion matrix",
         "data_upload.metrics.predicted": "Predicted class",
         "data_upload.metrics.true": "True class",
+        "data_upload.metrics.no_metrics": "No metrics to plot",     # <— added
+        "data_upload.metrics.no_cm": "No confusion matrix",         # <— added
 
         "data_upload.upload_test.title": "Upload test split",
         "data_upload.upload_test.checkbox": "Upload test split into database",
@@ -296,7 +300,7 @@ LANGS: Dict[str, Dict[str, str]] = {
 
         "data_upload.last_metrics.title": "Last metrics",
         "data_upload.last_metrics.file": "File: {filename}",
-        "data_upload.last_metrics.date": "Uploaded at: {ts}",
+        "data_upload.last_metrics.date": "Computed at: {ts}",  # <— updated
         "data_upload.last_metrics.cm_caption": "Confusion matrix",
         "data_upload.last_metrics.metrics_caption": "Per-class metrics",
         "data_upload.last_metrics.none": "No saved metrics yet. Upload a file and compute metrics.",
