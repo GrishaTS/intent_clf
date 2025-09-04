@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     # Метрики (для /metrics/compute и /metrics/latest)
     METRICS_DIR: str = os.getenv("METRICS_DIR", "metrics")  # файлы вида {user_id}.json
+    
+    # Переобучение
+    RETRAIN_DIR: str = "retrain"
 
     class Config:
         env_file = ".env"

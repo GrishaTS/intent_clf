@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("trainer.worker")
 
-MSK = ZoneInfo("Europe/Moscow")
+UTC_0 = ZoneInfo("UTC")
 
 DATA_API_URL = os.getenv("DATA_API_URL").rstrip("/")
 BACKEND_API_URL = os.getenv("BACKEND_API_URL")
@@ -45,11 +45,11 @@ def _session() -> requests.Session:
 # ==================================
 
 def run_once(*, force: bool = False, reason: str = "") -> None:
-    now = datetime.now(MSK)
+    now = datetime.now(UTS_0)
     today = now.date()
     anchor = date.fromisoformat(ANCHOR_DATE_STR)
 
-    logger.info("now(MSK)=%s force=%s reason=%s", now.isoformat(), force, reason)
+    logger.info("now(UTS_0)=%s force=%s reason=%s", now.isoformat(), force, reason)
 
     if not force and not _is_due_today(today, anchor, RUN_EVERY_DAYS):
         logger.info("skip: not due (anchor=%s, period=%sd)", anchor, RUN_EVERY_DAYS)

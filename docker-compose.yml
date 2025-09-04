@@ -64,25 +64,24 @@ services:
     depends_on:
       - api_griga
 
-  trainer_griga:
-    build:
-      context: trainer
-      dockerfile: Dockerfile
-    working_dir: /app/app
-    volumes:
-      - ./trainer/app:/app/app
-    environment:
-      BACKEND_API_URL: "http://api_griga:8000"
-      DATA_API_URL: "None"
-      TZ: Europe/Moscow
-      RUN_EVERY_DAYS: "0"
-      SCHEDULE_CRON: "*/5 * * * *"
-      ANCHOR_DATE_STR: "2025-09-07"
-      RUN_ON_START: "1"
-    command: ["python", "-u", "scheduler.py"]
-    depends_on:
-      - api_griga
-    restart: always
+# trainer_griga:
+#   build:
+#     context: trainer
+#     dockerfile: Dockerfile
+#   working_dir: /app/app
+#   volumes:
+#     - ./trainer/app:/app/app
+#   environment:
+#     BACKEND_API_URL: "http://api_griga:8000"
+#     DATA_API_URL: "None"
+#     RUN_EVERY_DAYS: "0"
+#     SCHEDULE_CRON: "*/5 * * * *"
+#     ANCHOR_DATE_STR: "2025-09-07"
+#     RUN_ON_START: "1"
+#   command: ["python", "-u", "scheduler.py"]
+#   depends_on:
+#     - api_griga
+#   restart: always
 
 volumes:
   qdrant_data_griga:

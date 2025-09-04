@@ -1,11 +1,16 @@
+# main.py
+
 import streamlit as st
 
-from config import API_URL
+import os
 from auth_ui import ensure_auth, top_bar, current_lang, tr
-from tab_classification import render_classification_tab
-from tab_similar_docs import render_similar_docs_tab
-from tab_data_upload import render_data_upload_tab
+from tabs.tab_classification import render_classification_tab
+from tabs.tab_similar_docs import render_similar_docs_tab
+from tabs.tab_data_upload import render_data_upload_tab
+from tabs.tab_retrain import render_retrain_tab
 from i18n import t
+
+API_URL = os.getenv("API_URL")
 
 st.markdown("<style>[data-testid='stSidebar']{display:none!important}</style>", unsafe_allow_html=True)
 st.session_state.setdefault("auth", {"ok": False, "username": None, "password": None, "token": None})
@@ -30,7 +35,12 @@ username = st.session_state["auth"]["username"]
 password = st.session_state["auth"]["password"]
 token = st.session_state["auth"]["token"]  # если понадобится — есть в state
 
-tab1, tab2, tab3 = st.tabs([_["tabs.classification"], _["tabs.similar_docs"], _["tabs.data_upload"]])
+tab1, tab2, tab3, tab4 = st.tabs([
+    _["tabs.classification"],
+    _["tabs.similar_docs"],
+    _["tabs.data_upload"],
+    _["tabs.retrain"],
+])
 
 with tab1:
     render_classification_tab(API_URL, username, password)
@@ -40,3 +50,6 @@ with tab2:
 
 with tab3:
     render_data_upload_tab(API_URL, username, password)
+
+with tab4:
+    render_retrain_tab(API_URL, username, password)

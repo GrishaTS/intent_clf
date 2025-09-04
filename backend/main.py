@@ -2,7 +2,7 @@
 from config import settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, health, predict, search, upload, metrics
+from routers import auth, health, predict, search, upload, metrics, retrain
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -23,7 +23,9 @@ app.include_router(auth.router)
 app.include_router(predict.router)
 app.include_router(upload.router)
 app.include_router(search.router)
-app.include_router(metrics.router)  # <-- добавлено
+app.include_router(metrics.router)
+app.include_router(retrain.router)
+
 
 if __name__ == "__main__":
     import uvicorn
